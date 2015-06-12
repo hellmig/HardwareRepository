@@ -10,6 +10,7 @@ import gevent.server
 import socket
 import pwd
 import qt
+from TaskUtils import task
 """
 <procedure class="InstanceServer">
   <host>myhostname</host>
@@ -82,10 +83,15 @@ class InstanceServer(Procedure):
         except:
             pass
         self.emit('instanceInitializing', ())
+        self.startConnection(wait=False)
 
+    @task
+    def startConnection(self):
         if self.isLocal():
+            logging.info("Instance server is local. starting server")
             self.startServer()
         else:
+            logging.info("Instance server is NOT local. connecting to server")
             if self.findServer():
                 self.connectToServer()
 
@@ -217,6 +223,7 @@ class InstanceServer(Procedure):
             send_data_to_server(self.instanceClient, data)
 
     def isLocal(self):    
+        return True
         try:
             display=os.environ["DISPLAY"].split(":")[0]
         except:
