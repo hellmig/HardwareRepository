@@ -1,76 +1,34 @@
+
 import logging
-import Queue
 import weakref
 import new
 import time
 import types
 import gevent
 import gevent.event
+import gevent.queue as Queue
 
 from ..CommandContainer import CommandObject, ChannelObject, ConnectionError
 from .. import Poller
 from .. import saferef
 
+#tango_imported = False
+
 try:
     import PyTango
+    from PyTango.gevent import DeviceProxy
+#    tango_imported = True
 except ImportError:
-    logging.getLogger('HWR').warning("Tango support is not available.")
-else:
-    # install our device proxy cache for PyTango
-    _DeviceProxy = PyTango.DeviceProxy
-    _DeviceProxy._subscribe_event = PyTango.DeviceProxy.subscribe_event
-    _devices_cache = weakref.WeakValueDictionary()
+    logging.getLogger('HWR').warning("Tango gevent support is not available. Trying without gevent")
 
-    def DeviceProxy(device_name, *args):
-      # return a proxy to a Tango device - if a proxy to the same
-      # device already exists, it is returned from the cache
-      device_name = device_name.lower()
-      try:
-        return _devices_cache[device_name]
-      except KeyError:
-        dev = _DeviceProxy(device_name, *args)
-        dev._device_callbacks = {}
-        class SuperCallback:
-          def __init__(self, callbacks_dict):
-            self.callbacks_dict = callbacks_dict
-            self.last_events = {}
-          def push_event(self, event):
-            if event.attr_value is None:
-                # an error occured, ignore bad event
-                return
-            attr_name = event.attr_value.name.lower()
-            self.last_events[attr_name] = event
-            callbacks = self.callbacks_dict[attr_name]
-            for cb_ref in callbacks:
-              cb = cb_ref()
-              if cb is not None:
-                try:
-                  cb.push_event(event)
-                except:
-                  continue
-
-        dev._super_callback = SuperCallback(dev._device_callbacks)
-
-        _devices_cache[device_name] = dev
-
-        return dev
-
-    def good_subscribe_event(self, attribute_name, event_type, callback, *args):
-      attribute_name = attribute_name.lower()
-      if not attribute_name in self._device_callbacks:
-        # first time registration
-        self._device_callbacks[attribute_name] = [weakref.ref(callback)]
-        self._subscribe_event(attribute_name, event_type, self._super_callback, *args)
-        return
-      self._device_callbacks[attribute_name].append(weakref.ref(callback))
-      ev = self._super_callback.last_events.get(attribute_name)
-      if ev is not None:
-        callback.push_event(ev)
-
-    _DeviceProxy.subscribe_event = new.instancemethod(good_subscribe_event, None, _DeviceProxy)
-    PyTango.DeviceProxy = DeviceProxy
-                    
-
+#if not tango_imported:
+#    try:
+#        import PyTango
+#        from PyTango import DeviceProxy
+#        tango_imported = True
+#    except ImportError:
+#        logging.getLogger('HWR').warning("No Tango support is available. Sorry")
+          
 
 class TangoCommand(CommandObject):
     def __init__(self, name, command, tangoname = None, username = None, **kwargs):
@@ -82,7 +40,7 @@ class TangoCommand(CommandObject):
    
     def init_device(self): 
         try:
-            self.device = PyTango.DeviceProxy(self.deviceName)
+            self.device = DeviceProxy(self.deviceName)
         except PyTango.DevFailed, traceback:
             last_error = traceback[-1]
             logging.getLogger('HWR').error("%s: %s", str(self.name()), last_error['desc'])
@@ -109,7 +67,7 @@ class TangoCommand(CommandObject):
         except PyTango.DevFailed, error_dict:
             logging.getLogger('HWR').error("%s: Tango, %s", str(self.name()), error_dict) 
         except:
-            logging.getLogger('HWR').error("%s: an error occured when calling Tango command %s", str(self.name()), self.command)
+            logging.getLogger('HWR').exception("%s: an error occured when calling Tango command %s", str(self.name()), self.command)
         else:
             self.emit('commandReplyArrived', (ret, str(self.name())))
             return ret
@@ -170,6 +128,7 @@ class TangoChannel(ChannelObject):
         self.read_as_str = kwargs.get("read_as_str", False)
         self._device_initialized = gevent.event.Event()
          
+        logging.getLogger("HWR").debug("creating Tango attribute %s/%s, polling=%s, timeout=%d", self.deviceName, self.attributeName, polling, self.timeout)
         self.init_poller = Poller.poll(self.init_device,
                                        polling_period = 3000,
                                        value_changed_callback = self.continue_init,
@@ -205,7 +164,7 @@ class TangoChannel(ChannelObject):
 
     def init_device(self):
         try:
-            self.device = PyTango.DeviceProxy(self.deviceName)
+            self.device = DeviceProxy(self.deviceName)
         except PyTango.DevFailed, traceback:
             self.imported = False
             last_error = traceback[-1]
