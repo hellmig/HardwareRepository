@@ -67,7 +67,7 @@ class MmapType(ImageType):
     self.mmapFile = mmapFile
 
 class RGBType(ImageType):
-  def __init__(self,mmapFile):
+  def __init__(self):
     ImageType.__init__(self, "rgb")
 
 
